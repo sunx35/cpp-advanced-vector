@@ -191,6 +191,7 @@ public:
     template <typename... Args>
     iterator Emplace(const_iterator pos, Args&&... args) {
         size_t pos_num = std::distance(begin(), const_cast<iterator>(pos));
+        assert(pos_num <= size_); // место вставки не должно превышать size_
         iterator ptr = nullptr;
         // ВЫДЕЛЯЕМ НОВУЮ ПАМЯТЬ
         if (size_ == data_.Capacity()) {
@@ -202,7 +203,6 @@ public:
             }
             else {
                 RawMemory<T> new_data(size_ * 2);
-                // размещаем сам элемент
                 new (new_data.GetAddress() + pos_num) T(std::forward<Args>(args)...);
                 MoveOrCopyBeforeAndAfterElements(new_data, pos_num);
                 std::destroy_n(begin(), size_);
@@ -212,7 +212,7 @@ public:
         }
         // НЕ ВЫДЕЛЯЕМ НОВУЮ ПАМЯТЬ
         else {
-            if (size_ == 0) {
+            if (pos_num == size_) { // в том числе, если size_ == 0; больше чем size_ он быть не может
                 ptr = new (begin() + pos_num) T(std::forward<Args>(args)...);
             }
             else {
@@ -297,49 +297,7 @@ public:
 
     template <typename... Args>
     T& EmplaceBack(Args&&... args) {
-        T* ptr = nullptr;
-        // ВЫДЕЛЯЕМ НОВУЮ ПАМЯТЬ
-        if (size_ == Capacity()) {
-            if (size_ == 0) {
-                RawMemory<T> new_data(1);
-                new (new_data.GetAddress()) T(std::forward<Args>(args)...);
-                data_.Swap(new_data);
-                ptr = data_.GetAddress();
-            }
-            else {
-                RawMemory<T> new_data(size_ * 2);
-                // размещаем новый объект
-                new (new_data.GetAddress() + size_) T(std::forward<Args>(args)...);
-                // все остальные
-                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                    try {
-                        std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
-                    }
-                    catch (...) {
-                        std::destroy_at(new_data.GetAddress() + size_);
-                        throw;
-                    }
-                }
-                else {
-                    try {
-                        std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
-                    }
-                    catch (...) {
-                        std::destroy_at(new_data.GetAddress() + size_);
-                        throw;
-                    }
-                }
-                std::destroy_n(data_.GetAddress(), size_);
-                data_.Swap(new_data);
-                ptr = data_.GetAddress() + size_;
-            }
-        }
-        // НЕ ВЫДЕЛЯЕМ НОВУЮ ПАМЯТЬ
-        else {
-            ptr = new (data_.GetAddress() + size_) T(std::forward<Args>(args)...);
-        }
-        ++size_;
-        return *ptr;
+        return *Emplace(end(), std::forward<Args>(args)...);
     }
 
     void PopBack() /* noexcept */ {
